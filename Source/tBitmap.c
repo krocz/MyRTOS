@@ -1,74 +1,58 @@
-/*************************************** Copyright (c)******************************************************
-** File name            :   tBitmap.c
-** Latest modified Date :   2016-06-01
-** Latest Version       :   0.1
-** Descriptions         :   tinyOS所用的位图数据结构。
-**
-**--------------------------------------------------------------------------------------------------------
-** Created by           :   01课堂 lishutong
-** Created date         :   2016-06-01
-** Version              :   1.0
-** Descriptions         :   The original version
-**
-**--------------------------------------------------------------------------------------------------------
-** Copyright            :   版权所有，禁止用于商业用途
-** Author Blog          :   http://ilishutong.com
-**********************************************************************************************************/
 #include "tLib.h"
 
 /**********************************************************************************************************
-** Function name        :   tBitmapInit
+** Function name        :   vBitmapInit
 ** Descriptions         :   初始化bitmap将所有的位全清0
 ** parameters           :   无
 ** Returned value       :   无
 ***********************************************************************************************************/
-void tBitmapInit (tBitmap * bitmap) 
+void vBitmapInit (Bitmap_t * pxBitmap) 
 {
-	bitmap->bitmap = 0;
+	pxBitmap->uiBitmap = 0;
 }
 
 /**********************************************************************************************************
-** Function name        :   tBitmapPosCount
+** Function name        :   uiBitmapPosCount
 ** Descriptions         :   返回最大支持的位置数量
 ** parameters           :   无
 ** Returned value       :   最大支持的位置数量
 ***********************************************************************************************************/
-uint32_t tBitmapPosCount (void) 
+uint32_t uiBitmapPosCount (void) 
 {
 	return 32;
 }
 
 /**********************************************************************************************************
-** Function name        :   tBitmapSet
+** Function name        :   vBitmapSet
 ** Descriptions         :   设置bitmap中的某个位
 ** parameters           :   pos 需要设置的位
 ** Returned value       :   无
 ***********************************************************************************************************/
-void tBitmapSet (tBitmap * bitmap, uint32_t pos)
+void vBitmapSet (Bitmap_t * pxBitmap, uint32_t uiPos)
 {
-	bitmap->bitmap |= 1 << pos;
+	pxBitmap->uiBitmap |= 1 << uiPos;
 }
 
 /**********************************************************************************************************
-** Function name        :   tBitmapClear
+** Function name        :   vBitmapClear
 ** Descriptions         :   清除bitmap中的某个位
 ** parameters           :   pos 需要清除的位
 ** Returned value       :   无
 ***********************************************************************************************************/
-void tBitmapClear (tBitmap * bitmap, uint32_t pos)
+void vBitmapClear (Bitmap_t * pxBitmap, uint32_t uiPos)
 {
-	bitmap->bitmap &= ~(1 << pos);
+	pxBitmap->uiBitmap &= ~(1 << uiPos);
 }
 
 /**********************************************************************************************************
-** Function name        :   tBitmapGetFirstSet
+** Function name        :   uiBitmapGetFirstSet
 ** Descriptions         :   从位图中第0位开始查找，找到第1个被设置的位置序号
 ** parameters           :   无
 ** Returned value       :   第1个被设置的位序号
 ***********************************************************************************************************/
-uint32_t tBitmapGetFirstSet (tBitmap * bitmap) 
+uint32_t uiBitmapGetFirstSet (Bitmap_t * pxBitmap) 
 {
-	static const uint8_t quickFindTable[] =     
+	static const uint8_t pcQuickFindTable[] =     
 	{
 	    /* 00 */ 0xff, 0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
 	    /* 10 */ 4,    0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0,
@@ -88,24 +72,24 @@ uint32_t tBitmapGetFirstSet (tBitmap * bitmap)
 	    /* F0 */ 4,    0, 1, 0, 2, 0, 1, 0, 3, 0, 1, 0, 2, 0, 1, 0
 	};
 
-	if (bitmap->bitmap & 0xff)
+	if (pxBitmap->uiBitmap & 0xff)
     {
-        return quickFindTable[bitmap->bitmap & 0xff];         
+        return pcQuickFindTable[pxBitmap->uiBitmap & 0xff];         
     }
-    else if (bitmap->bitmap & 0xff00)
+    else if (pxBitmap->uiBitmap & 0xff00)
     {
-        return quickFindTable[(bitmap->bitmap >> 8) & 0xff] + 8;        
+        return pcQuickFindTable[(pxBitmap->uiBitmap >> 8) & 0xff] + 8;        
     }
-    else if (bitmap->bitmap & 0xff0000)
+    else if (pxBitmap->uiBitmap & 0xff0000)
     {
-        return quickFindTable[(bitmap->bitmap >> 16) & 0xff] + 16;        
+        return pcQuickFindTable[(pxBitmap->uiBitmap >> 16) & 0xff] + 16;        
     }
-    else if (bitmap->bitmap & 0xFF000000)
+    else if (pxBitmap->uiBitmap & 0xFF000000)
     {
-        return quickFindTable[(bitmap->bitmap >> 24) & 0xFF] + 24;
+        return pcQuickFindTable[(pxBitmap->uiBitmap >> 24) & 0xFF] + 24;
     }
     else
     {
-        return tBitmapPosCount();
+        return uiBitmapPosCount();
     }
 }

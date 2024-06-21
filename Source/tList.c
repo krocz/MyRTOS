@@ -1,247 +1,261 @@
-/*************************************** Copyright (c)******************************************************
-** File name            :   tList.c
-** Latest modified Date :   2016-06-01
-** Latest Version       :   0.1
-** Descriptions         :   tinyOS所用的双向链表数据结构。
-**
-**--------------------------------------------------------------------------------------------------------
-** Created by           :   01课堂 lishutong
-** Created date         :   2016-06-01
-** Version              :   1.0
-** Descriptions         :   The original version
-**
-**--------------------------------------------------------------------------------------------------------
-** Copyright            :   版权所有，禁止用于商业用途
-** Author Blog          :   http://ilishutong.com
-**********************************************************************************************************/
 #include "tLib.h"
 
+
 /**********************************************************************************************************
-** Function name        :   tNodeInit
+** Function name        :   vNodeInit
 ** Descriptions         :   初始化结点类型
 ** parameters           :   无
 ** Returned value       :   无
 ***********************************************************************************************************/
-void tNodeInit (tNode * node)
+void vNodeInit (Node_t* pxNode)
 {
-    node->nextNode = node;
-    node->preNode = node;
+	pxNode->pxPreNode = pxNode->pxNextNode = pxNode;
 }
 
-// 以下是简化代码编写添加的宏
-#define firstNode   headNode.nextNode
-#define lastNode    headNode.preNode
-
 /**********************************************************************************************************
-** Function name        :   tListInit
+** Function name        :   vListInit
 ** Descriptions         :   链表初始化
 ** parameters           :   无
 ** Returned value       :   无
 ***********************************************************************************************************/
-void tListInit (tList * list)
+void vListInit (List_t * pxList)
 {
-	list->firstNode = &(list->headNode);
-    list->lastNode = &(list->headNode);
-    list->nodeCount = 0;
+	pxList->xHeadNode.pxNextNode = &(pxList->xHeadNode);
+	pxList->xHeadNode.pxPreNode = &(pxList->xHeadNode);
+	pxList->uiNodeCnt = 0;
 }
 
 /**********************************************************************************************************
-** Function name        :   tListCount
+** Function name        :   iListIsFirst
+** Descriptions         :   判断给定节点是否为链表的第一个节点
+** parameters           :   无
+** Returned value       :   1：是，0：否
+***********************************************************************************************************/
+int iListIsFirst(List_t * pxList, Node_t * pxNode)
+{
+	if(pxNode)
+		return (pxNode->pxPreNode == &pxList->xHeadNode)? 1 : 0;
+	else
+		return 0;
+}
+
+/**********************************************************************************************************
+** Function name        :   iListIsLast
+** Descriptions         :   判断给定节点是否为链表的第一个节点
+** parameters           :   无
+** Returned value       :   1：是，0：否
+***********************************************************************************************************/
+int iListIsLast(List_t * pxList, Node_t * pxNode)
+{
+	if(pxNode)
+		return (pxNode->pxNextNode == &pxList->xHeadNode)? 1 : 0;
+	else
+		return 0;
+}
+
+/**********************************************************************************************************
+** Function name        :   uiListCount
 ** Descriptions         :   返回链表中结点的数量
 ** parameters           :   无
 ** Returned value       :   结点数量
 ***********************************************************************************************************/
-uint32_t tListCount (tList * list)
+uint32_t uiListCount (List_t * pxList)
 {
-	return list->nodeCount;
+	return pxList->uiNodeCnt;
 }
 
 /**********************************************************************************************************
-** Function name        :   tListFirst
+** Function name        :   pxListFirst
 ** Descriptions         :   返回链表的首个结点
 ** parameters           :   list 查询的链表
 ** Returned value       :   首个结点，如果链表为空，则返回0
 ***********************************************************************************************************/
-tNode * tListFirst (tList * list)
+Node_t * pxListFirst (List_t * pxList)
 {
-    tNode * node = (tNode *)0;
-	
-	if (list->nodeCount != 0) 
-	{
-		node = list->firstNode;
-	}    
-    return  node;
+	if(pxList->uiNodeCnt)
+		return pxList->xHeadNode.pxNextNode;
+	else
+		return (Node_t *)0;
 }
 
+
 /**********************************************************************************************************
-** Function name        :   tListLast
+** Function name        :   pxListLast
 ** Descriptions         :   返回链表的最后一个结点
 ** parameters           :   list 查询的链表
 ** Returned value       :   最后的结点，如果链表为空，则返回0
 ***********************************************************************************************************/
-tNode * tListLast (tList * list)
+Node_t* pxListLast (List_t * pxList)
 {
-    tNode * node = (tNode *)0;
-	
-	if (list->nodeCount != 0) 
-	{
-		node = list->lastNode;
-	}    
-    return  node;
+	if(pxList->uiNodeCnt)
+		return pxList->xHeadNode.pxPreNode;
+	else
+		return (Node_t *)0;
 }
 
 /**********************************************************************************************************
-** Function name        :   tListPre
+** Function name        :   pxListPre
 ** Descriptions         :   返回链表中指定结点的前一结点
 ** parameters           :   list 查询的链表
 ** parameters           :   node 参考结点
 ** Returned value       :   前一结点结点，如果结点没有前结点（链表为空），则返回0
 ***********************************************************************************************************/
-tNode * tListPre (tList * list, tNode * node)
+Node_t * pxListPre (List_t * pxList, Node_t * pxNode)
 {
-	if (node->preNode == node) 
-	{
-		return (tNode *)0;
-	} 
-	else 
-	{
-		return node->preNode;
-	}
+	if(pxNode->pxPreNode == &pxList->xHeadNode)
+		return (Node_t *)0;
+	else
+		return pxNode->pxPreNode;	
 }
 
 /**********************************************************************************************************
-** Function name        :   tListnextNode
+** Function name        :   pxListNext
 ** Descriptions         :   返回链表中指定结点的后一结点
 ** parameters           :   list 查询的链表
 ** parameters           :   node 参考结点
 ** Returned value       :   后一结点结点，如果结点没有前结点（链表为空），则返回0
 ***********************************************************************************************************/
-tNode * tListNext (tList * list, tNode * node)
+Node_t * pxListNext (List_t * pxList, Node_t * pxNode)
 {
-	if (node->nextNode == node) 
-	{
-		return (tNode *)0;
-	}
-	else 
-	{
-		return node->nextNode;
-	}
+	if(pxNode->pxNextNode == &pxList->xHeadNode)
+		return (Node_t *)0;
+	else
+		return pxNode->pxNextNode;	
 }
 
 /**********************************************************************************************************
-** Function name        :   tListRemoveAll
+** Function name        :   vListRemoveAll
 ** Descriptions         :   移除链表中的所有结点
 ** parameters           :   list 待清空的链表
 ** Returned value       :   无
 ***********************************************************************************************************/
-void tListRemoveAll (tList * list)
+void vListRemoveAll (List_t * pxList)
 {
-    uint32_t count;
-    tNode * nextNode;
-        
-    // 遍历所有的结点
-	  nextNode = list->firstNode;
-    for (count = list->nodeCount; count != 0; count-- )
-    {
-    	// 先纪录下当前结点，和下一个结点
-    	// 必须纪录下一结点位置，因为在后面的代码中当前结点的next会被重置
-        tNode * currentNode = nextNode;
-        nextNode = nextNode->nextNode;
-        
-        // 重置结点自己的信息
-        currentNode->nextNode = currentNode;
-        currentNode->preNode = currentNode;
-    }
-    
-    list->firstNode = &(list->headNode);
-    list->lastNode = &(list->headNode);
-    list->nodeCount = 0;
+	int i;
+	Node_t *pxCurNode = pxList->xHeadNode.pxNextNode, *pxNextNode;
+	for(i = 0; i < pxList->uiNodeCnt; i++)
+	{
+		pxNextNode = pxCurNode->pxNextNode;
+		pxCurNode->pxNextNode = pxCurNode->pxPreNode = pxCurNode;
+		pxCurNode = pxNextNode;
+	}
+	pxList->xHeadNode.pxNextNode = pxList->xHeadNode.pxPreNode = &pxList->xHeadNode;
+	pxList->uiNodeCnt = 0;
 }
 
+
 /**********************************************************************************************************
-** Function name        :   tListAddFirst
+** Function name        :   vListAddFirst
 ** Descriptions         :   将指定结点添加到链表的头部
 ** parameters           :   list 待插入链表
 ** parameters			:   node 待插入的结点
 ** Returned value       :   无
 ***********************************************************************************************************/
-void tListAddFirst (tList * list, tNode * node)
+void vListAddFirst (List_t * pxList, Node_t * pxNode)
 {
-    node->preNode = list->firstNode->preNode;
-    node->nextNode = list->firstNode;
-
-    list->firstNode->preNode = node;
-    list->firstNode = node;
-    list->nodeCount++;
+	pxNode->pxPreNode = &pxList->xHeadNode;
+	pxNode->pxNextNode = pxList->xHeadNode.pxNextNode;
+	
+	pxList->xHeadNode.pxNextNode->pxPreNode = pxNode;
+	pxList->xHeadNode.pxNextNode = pxNode;
+	pxList->uiNodeCnt++;
 }
 
 /**********************************************************************************************************
-** Function name        :   tListAddLast
+** Function name        :   vListAddLast
 ** Descriptions         :   将指定结点添加到链表的末尾
 ** parameters           :   list 待插入链表
 ** parameters			:   node 待插入的结点
 ** Returned value       :   无
 ***********************************************************************************************************/
-void tListAddLast (tList * list, tNode * node)
+void vListAddLast (List_t * pxList, Node_t * pxNode)
 {
-	node->nextNode = &(list->headNode);
-    node->preNode = list->lastNode;
-
-    list->lastNode->nextNode = node;
-    list->lastNode = node;
-    list->nodeCount++;
+	pxNode->pxNextNode = &pxList->xHeadNode;
+	pxNode->pxPreNode = pxList->xHeadNode.pxPreNode;
+	
+	pxList->xHeadNode.pxPreNode->pxNextNode = pxNode;
+	pxList->xHeadNode.pxPreNode = pxNode;
+	pxList->uiNodeCnt++;
 }
 
 /**********************************************************************************************************
-** Function name        :   tListRemoveFirst
+** Function name        :   vListRemoveFirst
 ** Descriptions         :   移除链表中的第1个结点
-** parameters           :   list 待移除链表
+** parameters           :   pxList 待移除链表
 ** Returned value       :   如果链表为空，返回0，否则的话，返回第1个结点
 ***********************************************************************************************************/
-tNode * tListRemoveFirst (tList * list)
+Node_t * vListRemoveFirst (List_t * pxList)
 {
-    tNode * node = (tNode *)0;
-
-	if( list->nodeCount != 0 )
-    {
-        node = list->firstNode;
-
-        node->nextNode->preNode = &(list->headNode);
-        list->firstNode = node->nextNode;
-        list->nodeCount--;
-    }
-    return  node;
+	Node_t *pxTemp = (Node_t *)0;
+	if(pxList->uiNodeCnt)
+	{
+		pxTemp = pxList->xHeadNode.pxNextNode;
+		pxList->xHeadNode.pxNextNode = pxTemp->pxNextNode;
+		pxTemp->pxNextNode->pxPreNode = &pxList->xHeadNode;
+		pxList->uiNodeCnt--;
+	}
+	return pxTemp;	
 }
 
 /**********************************************************************************************************
-** Function name        :   tListInsertAfter
+** Function name        :   vListInsertForward
+** Descriptions         :   将指定的结点插入到某个结点前面
+** parameters           :   pxList 			待插入的链表
+** parameters           :   pxNodeAfter 		参考结点
+** parameters           :   pxNodeToInsert 	待插入的结构
+** Returned value       :   无
+***********************************************************************************************************/
+void vListInsertForward (List_t * pxList, Node_t* pxNodeForward, Node_t * pxNodeToInsert)
+{
+	pxNodeToInsert->pxNextNode = pxNodeForward;
+	pxNodeToInsert->pxPreNode = pxNodeForward->pxPreNode;
+	
+	pxNodeForward->pxPreNode->pxNextNode = pxNodeToInsert;
+	pxNodeForward->pxPreNode = pxNodeToInsert;
+	pxList->uiNodeCnt++;
+}
+
+
+/**********************************************************************************************************
+** Function name        :   vListInsertAfter
 ** Descriptions         :   将指定的结点插入到某个结点后面
-** parameters           :   list 			待插入的链表
-** parameters           :   nodeAfter 		参考结点
-** parameters           :   nodeToInsert 	待插入的结构
+** parameters           :   pxList 			待插入的链表
+** parameters           :   pxNodeAfter 		参考结点
+** parameters           :   pxNodeToInsert 	待插入的结构
 ** Returned value       :   无
 ***********************************************************************************************************/
-void tListInsertAfter (tList * list, tNode * nodeAfter, tNode * nodeToInsert)
+void vListInsertAfter (List_t * pxList, Node_t* pxNodeAfter, Node_t * pxNodeToInsert)
 {
-    nodeToInsert->preNode = nodeAfter;
-    nodeToInsert->nextNode = nodeAfter->nextNode;
-
-    nodeAfter->nextNode->preNode = nodeToInsert;
-    nodeAfter->nextNode = nodeToInsert;
-
-    list->nodeCount++;
+	pxNodeToInsert->pxPreNode = pxNodeAfter;
+	pxNodeToInsert->pxNextNode = pxNodeAfter->pxNextNode;
+	
+	pxNodeAfter->pxNextNode->pxPreNode = pxNodeToInsert;
+	pxNodeAfter->pxNextNode = pxNodeToInsert;
+	pxList->uiNodeCnt++;
 }
 
 /**********************************************************************************************************
-** Function name        :   tListRemove
+** Function name        :   vListRemove
 ** Descriptions         :   将指定结点从链表中移除
-** parameters           :   list 	待移除的链表
-** parameters           :   node 	待移除的结点
+** parameters           :   pxList 	待移除的链表
+** parameters           :   pxNode 	待移除的结点
 ** Returned value       :   无
 ***********************************************************************************************************/
-void tListRemove (tList * list, tNode * node)
+void vListRemove (List_t * pxList, Node_t * pxNode)
 {
-    node->preNode->nextNode = node->nextNode;
-    node->nextNode->preNode = node->preNode;
-    list->nodeCount--;
+	pxNode->pxPreNode->pxNextNode = pxNode->pxNextNode;
+	pxNode->pxNextNode->pxPreNode = pxNode->pxPreNode;
+	pxList->uiNodeCnt--;
 }
+
+
+
+
+
+
+
+
+
+
+
+

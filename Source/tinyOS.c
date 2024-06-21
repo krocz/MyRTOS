@@ -1,23 +1,25 @@
 #include "tinyOS.h"
 #include "tConfig.h"
+#include "tLib.h"
 
 void SysTick_Handler(void);
 /***************** 静态全局函数声明 ************************/
 static void prvTaskSched(void); 
 static void prvTaskSystemTickHandler(void);
 static void prvSetSysTickPeriod(uint32_t ms);
-static Task_t * prxTaskHightestReady (void);
+static void prvTaskSchedUnRdy (Task_t * pxTask);
+static void prvTaskSchedRdy (Task_t * pxTask);
+static void prvTimeTaskWakeUp (Task_t * pxTask);
+static void prvTimeTaskWait (Task_t * pxTask, uint32_t uiTicks);
 /****************** 全局变量 *************************/
 
 // 当前任务：记录当前是哪个任务正在运行
-static Task_t * g_pxCurrentTask;
+Task_t * pxCurrentTask;
 
 // 下一个即将运行的任务：在任务切换之前，需要先设置好该值
-static Task_t * g_pxNextTask;
+Task_t * pxNextTask;
 
-static Task_t * g_pxIdleTask;
-
-static Task_t * g_pxTaskTable[2];
+static Task_t * g_pxTaskTable[TINYOS_PRO_COUNT];
 
 // 调度锁计数器
 static uint8_t g_cSchedLockCount;
@@ -62,9 +64,22 @@ void vTaskInit(Task_t * pxTask, TaskFunction_pt pxTaskCode, void *pvParam, uint3
     pxTask->pxStack = pxStack;                                // 保存最终的值
 	pxTask->uiDelayTicks = 0;
 	pxTask->uiPrio = uiPrio;
+	pxTask->uiState = TINYOS_TASK_STATE_RDY;
+	vNodeInit(&pxTask->xDelayNode);
 	
 	g_pxTaskTable[uiPrio] = pxTask;
 	vBitmapSet(&g_xTaskPrioBitmap, uiPrio);
+}
+
+/**********************************************************************************************************
+** Function name        :   vTaskSetNext
+** Descriptions         :   设置下一个任务
+** parameters           :   pxTask 
+** Returned value       :   无
+***********************************************************************************************************/
+void vTaskSetNext(Task_t *pxTask)
+{
+	pxNextTask = pxTask;
 }
 
 
@@ -103,18 +118,21 @@ void vTaskExitCritical (uint32_t uiStatus)
 void vTaskDelay(uint32_t uiDelay)
 {
 	uint32_t uiStatus = uiTaskEnterCritical();
-	g_pxCurrentTask->uiDelayTicks = uiDelay;
+	// 设置延时值，插入延时队列
+	prvTimeTaskWait(pxCurrentTask, uiDelay);
+	// 将任务从就绪表中移除
+	prvTaskSchedUnRdy(pxCurrentTask);
 	vTaskExitCritical(uiStatus);
 	prvTaskSched();
 }
 
 /**********************************************************************************************************
-** Function name        :   初始化调度器
-** Descriptions         :   无
+** Function name        :   vTaskSchedInit
+** Descriptions         :   初始化调度器
 ** parameters           :   无
 ** Returned value       :   无
 ***********************************************************************************************************/
-void tTaskSchedInit (void)
+void vTaskSchedInit (void)
 {
     g_cSchedLockCount = 0;
 }
@@ -197,60 +215,16 @@ void vTaskDelayedInit (void)
 }
 
 /**********************************************************************************************************
-** Function name        :   tTimeTaskWait
-** Descriptions         :   将任务加入延时队列中
-** input parameters     :   task    需要延时的任务
-**                          ticks   延时的ticks
-** output parameters    :   无
+** Function name        :   pxTaskHightestReady
+** Descriptions         :   获取优先级最高的任务
+** parameters           :   无
 ** Returned value       :   无
 ***********************************************************************************************************/
-void tTimeTaskWait (Task_t * pxTask, uint32_t uiTicks)
+Task_t * pxTaskHightestReady (void)
 {
-	Node_t *pxCur = pxListFirst(&g_xTaskDelayedList);
-	int sum = 0;
-    
+	uint32_t uiPrio = uiBitmapGetFirstSet(&g_xTaskPrioBitmap);
+	return g_pxTaskTable[uiPrio];
 	
-	for(int i = 0; i < g_xTaskDelayedList.uiNodeCnt; i++)
-	{
-		Task_t *pxTemp = pxNodeParent(pxCur, Task_t, uiDelayTicks);
-		sum += pxTemp->uiDelayTicks;
-
-		if(sum > uiTicks)
-		{
-			pxTask->uiDelayTicks = uiTicks - (sum - pxTemp->uiDelayTicks);
-			vListInsertForward(&g_xTaskDelayedList, pxCur, &pxTask->xDelayNode);
-			break;
-		}
-		pxCur = pxListNext(&g_xTaskDelayedList, pxCur);
-	}
-	if(pxCur == &g_xTaskDelayedList.xHeadNode)
-	{
-		pxTask->uiDelayTicks = uiTicks - sum;
-		vListAddLast(&g_xTaskDelayedList, &pxTask->xDelayNode);
-	}
-	else if(pxTask->uiDelayTicks)
-	{
-		while(pxCur != &g_xTaskDelayedList.xHeadNode)
-		{
-			Task_t *pxTemp = pxNodeParent(pxCur, Task_t, uiDelayTicks);
-			pxTemp->uiDelayTicks -= pxTask->uiDelayTicks;
-			pxCur = pxListNext(&g_xTaskDelayedList, pxCur);
-		}
-	}
-    pxTask->uiState |= TINYOS_TASK_STATE_DELAYED;
-}
-
-/**********************************************************************************************************
-** Function name        :   vTimeTaskWakeUp
-** Descriptions         :   将延时的任务从延时队列中唤醒
-** input parameters     :   pxTask  需要唤醒的任务
-** output parameters    :   无
-** Returned value       :   无
-***********************************************************************************************************/
-void vTimeTaskWakeUp (Task_t * pxTask)
-{
-    vListRemove(&g_xTaskDelayedList, &(pxTask->xDelayNode));
-    pxTask->uiState &= ~TINYOS_TASK_STATE_DELAYED;
 }
 
 
@@ -266,17 +240,23 @@ void vTimeTaskWakeUp (Task_t * pxTask)
 ***********************************************************************************************************/
 static void prvTaskSystemTickHandler(void)
 {
-	int i;
 	uint32_t status = uiTaskEnterCritical();
-	Node_t *pxNode;
+	Node_t *pxNode = pxListFirst(&g_xTaskDelayedList);
 	
-	
-	
-	for(i = 0; i < 2; i++)
+	if(pxNode)
 	{
-		if(g_pxTaskTable[i]->uiDelayTicks > 0)
-			g_pxTaskTable[i]->uiDelayTicks--;
+		Task_t *pxTask = pxNodeParent(pxNode, Task_t, xDelayNode);     
+		pxTask->uiDelayTicks--;
+		while(!pxTask->uiDelayTicks)
+		{
+			prvTimeTaskWakeUp(pxTask);   // 将任务从延时队列中删除
+			prvTaskSchedRdy(pxTask);     // 根据优先级将任务加入就绪优先级数组
+			pxNode = pxListNext(&g_xTaskDelayedList, pxNode);
+			if(!pxNode) break;
+			pxTask = pxNodeParent(pxNode, Task_t, xDelayNode);
+		}
 	}
+	
 	// 防止中断嵌套调用 
 	vTaskExitCritical(status);
 	prvTaskSched();
@@ -317,27 +297,103 @@ static void prvTaskSched ( void )
 		return;
 	}
 	
-	pxTempTask = prxTaskHightestReady();
-	if(pxTempTask != g_pxCurrentTask)
+	pxTempTask = pxTaskHightestReady();
+	if(pxTempTask != pxCurrentTask)
 	{
-		g_pxNextTask = pxTempTask;
+		pxNextTask = pxTempTask;
 		vTaskSwitch();
 	}
 
 	vTaskExitCritical(status);
 }
 
+
 /**********************************************************************************************************
-** Function name        :   prxTaskHightestReady
-** Descriptions         :   获取优先级最高的任务
-** parameters           :   无
+** Function name        :   prvTimeTaskWait
+** Descriptions         :   将任务加入延时队列中
+** input parameters     :   task    需要延时的任务
+**                          ticks   延时的ticks
+** output parameters    :   无
 ** Returned value       :   无
 ***********************************************************************************************************/
-static Task_t * prxTaskHightestReady (void)
+static void prvTimeTaskWait (Task_t * pxTask, uint32_t uiTicks)
 {
-	uint32_t uiPrio = uiBitmapGetFirstSet(&g_xTaskPrioBitmap);
-	return g_pxTaskTable[uiPrio];
+	int sum = 0, i;
+	Node_t *pxCur = g_xTaskDelayedList.xHeadNode.pxNextNode;
 	
+	for(i = 0; i < g_xTaskDelayedList.uiNodeCnt; i++)
+	{
+		Task_t *pxTemp = pxNodeParent(pxCur, Task_t, xDelayNode);
+		sum += pxTemp->uiDelayTicks;
+
+		if(sum > uiTicks)
+		{
+			pxTask->uiDelayTicks = uiTicks - (sum - pxTemp->uiDelayTicks);
+			vListInsertForward(&g_xTaskDelayedList, pxCur, &pxTask->xDelayNode);
+			break;
+		}
+		pxCur = pxListNext(&g_xTaskDelayedList, pxCur);
+	}
+	if(sum <= uiTicks)           // 如果延时队列中所有节点的时延之和小于等于当前任务，则将任务加入队列末尾
+	{
+		pxTask->uiDelayTicks = uiTicks - sum;
+		vListAddLast(&g_xTaskDelayedList, &pxTask->xDelayNode);
+	}
+	else if(pxTask->uiDelayTicks)  // 否则，任务已经插入到队列中，则将任务后面的节点的时延进行更新
+	{
+		while(pxCur != &g_xTaskDelayedList.xHeadNode)
+		{
+			Task_t *pxTemp = pxNodeParent(pxCur, Task_t, xDelayNode);
+			pxTemp->uiDelayTicks -= pxTask->uiDelayTicks;
+			pxCur = pxListNext(&g_xTaskDelayedList, pxCur);
+		}
+	}
+    pxTask->uiState |= TINYOS_TASK_STATE_DELAYED;
 }
+
+/**********************************************************************************************************
+** Function name        :   prvTimeTaskWakeUp
+** Descriptions         :   将延时的任务从延时队列中唤醒
+** input parameters     :   pxTask  需要唤醒的任务
+** output parameters    :   无
+** Returned value       :   无
+***********************************************************************************************************/
+static void prvTimeTaskWakeUp (Task_t * pxTask)
+{
+    vListRemove(&g_xTaskDelayedList, &(pxTask->xDelayNode));
+    pxTask->uiState &= ~TINYOS_TASK_STATE_DELAYED;
+}
+
+
+
+/**********************************************************************************************************
+** Function name        :   prvTaskSchedRdy
+** Descriptions         :   将任务设置为就绪状态
+** input parameters     :   task    等待设置为就绪状态的任务
+** output parameters    :   无
+** Returned value       :   无
+***********************************************************************************************************/
+static void prvTaskSchedRdy (Task_t * pxTask)
+{
+    g_pxTaskTable[pxTask->uiPrio] = pxTask;
+    vBitmapSet(&g_xTaskPrioBitmap, pxTask->uiPrio);
+}
+
+/************************************************************************************************************
+** Descriptions         :   prvTaskSchedUnRdy
+** Descriptions         :   将任务从就绪列表中移除
+** input parameters     :   task    ÒªÒÆ³ýµÄÈÎÎñ¿é
+** output parameters    :   None
+** Returned value       :   None
+***********************************************************************************************************/
+static void prvTaskSchedUnRdy (Task_t * pxTask)
+{
+    g_pxTaskTable[pxTask->uiPrio] = (Task_t *)0;
+    vBitmapClear(&g_xTaskPrioBitmap, pxTask->uiPrio);
+}
+
+
+
+
 
 
