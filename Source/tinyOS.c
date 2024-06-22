@@ -5,8 +5,6 @@
 void SysTick_Handler(void);
 /***************** 静态全局函数声明 ************************/
 static void prvTaskSched(void); 
-static void prvTaskSystemTickHandler(void);
-static void prvSetSysTickPeriod(uint32_t ms);
 static void prvTaskSchedUnRdy (Task_t * pxTask);
 static void prvTaskSchedRdy (Task_t * pxTask);
 static void prvTimeTaskWakeUp (Task_t * pxTask);
@@ -19,7 +17,7 @@ Task_t * pxCurrentTask;
 // 下一个即将运行的任务：在任务切换之前，需要先设置好该值
 Task_t * pxNextTask;
 
-static Task_t * g_pxTaskTable[TINYOS_PRO_COUNT];
+static List_t g_xTaskTable[TINYOS_PRO_COUNT];
 
 // 调度锁计数器
 static uint8_t g_cSchedLockCount;
@@ -65,49 +63,35 @@ void vTaskInit(Task_t * pxTask, TaskFunction_pt pxTaskCode, void *pvParam, uint3
 	pxTask->uiDelayTicks = 0;
 	pxTask->uiPrio = uiPrio;
 	pxTask->uiState = TINYOS_TASK_STATE_RDY;
-	vNodeInit(&pxTask->xDelayNode);
+	pxTask->slice = TINYOS_SLICE_MAX;
+	pxTask->uiSuspendCount = 0;
 	
-	g_pxTaskTable[uiPrio] = pxTask;
-	vBitmapSet(&g_xTaskPrioBitmap, uiPrio);
+	vNodeInit(&pxTask->xDelayNode);
+	vNodeInit(&pxTask->xLinkNode);                       // 初始化链接结点
+	prvTaskSchedRdy(pxTask);
 }
 
 /**********************************************************************************************************
-** Function name        :   vTaskSetNext
-** Descriptions         :   设置下一个任务
-** parameters           :   pxTask 
-** Returned value       :   无
-***********************************************************************************************************/
-void vTaskSetNext(Task_t *pxTask)
-{
-	pxNextTask = pxTask;
-}
-
-
-/**********************************************************************************************************
-** Function name        :   uiTaskEnterCritical
-** Descriptions         :   进入临界区
-** parameters           :   无
-** Returned value       :   进入临界区之前的中断状态值
-***********************************************************************************************************/
-uint32_t uiTaskEnterCritical (void)
-{
-	uint32_t uiPrimask = __get_PRIMASK();
-	__disable_irq();
-	return uiPrimask;
-}
-
-/**********************************************************************************************************
-** Function name        :   vTaskExitCritical
-** Descriptions         :   退出临界区
+** Function name        :   vHardwareInit
+** Descriptions         :   硬件初始化
 ** parameters           :   无
 ** Returned value       :   无
 ***********************************************************************************************************/
-void vTaskExitCritical (uint32_t uiStatus)
+void vHardwareInit(void)
 {
-	__set_PRIMASK(uiStatus);
+	vSetSysTickPeriod(TINYOS_ONE_TICK_TO_MS);
 }
 
-
+/**********************************************************************************************************
+** Function name        :   vTaskDelayedInit
+** Descriptions         :   初始化任务延时机制
+** parameters           :   无
+** Returned value       :   无
+***********************************************************************************************************/
+void vTaskDelayedInit (void) 
+{
+    vListInit(&g_xTaskDelayedList);
+}
 
 /**********************************************************************************************************
 ** Function name        :   vTaskDelay
@@ -134,7 +118,13 @@ void vTaskDelay(uint32_t uiDelay)
 ***********************************************************************************************************/
 void vTaskSchedInit (void)
 {
+	int i = 0;
     g_cSchedLockCount = 0;
+	vBitmapInit(&g_xTaskPrioBitmap);
+	for(i = 0; i < TINYOS_PRO_COUNT; i++)
+	{
+		vListInit(&g_xTaskTable[i]);
+	}
 }
 
 
@@ -176,43 +166,66 @@ void vTaskSchedDisable(void)
 	vTaskExitCritical(status);
 }
 
-/**********************************************************************************************************
-** Function name        :   vHardwareInit
-** Descriptions         :   硬件初始化
-** parameters           :   无
-** Returned value       :   无
-***********************************************************************************************************/
-void vHardwareInit(void)
-{
-	prvSetSysTickPeriod(TINYOS_ONE_TICK_TO_MS);
-}
+
+
+
 
 
 
 
 
 /**********************************************************************************************************
-** Function name        :   SysTick_Handler
-** Descriptions         :   SystemTick的中断处理函数。
-** parameters           :   无
+** Function name        :   tTaskSuspend
+** Descriptions         :   挂起指定的任务
+** parameters           :   task        待挂起的任务
 ** Returned value       :   无
 ***********************************************************************************************************/
-void SysTick_Handler(void)
+void vTaskSuspend(Task_t * pxTask)
 {
-	prvTaskSystemTickHandler();
+	uint32_t uiStatus = uiTaskEnterCritical();
+	
+	if(!(pxTask->uiState & TINYOS_TASK_STATE_DELAYED))
+	{
+        // 增加挂起计数，仅当该任务被执行第一次挂起操作时，才考虑是否
+        // 要执行任务切换操作
+        if (++pxTask->uiSuspendCount <= 1)
+		{
+			pxTask->uiState |= TINYOS_TASK_STATE_SUSPEND;
+			prvTaskSchedUnRdy(pxTask);   // 从就绪队列中移除该任务
+			
+			if(pxTask == pxCurrentTask)  // 如果该任务为当前任务，则进行任务切换
+				prvTaskSched();
+		}
+	}
+	
+	vTaskExitCritical(uiStatus);
 }
-
 
 /**********************************************************************************************************
-** Function name        :   vTaskDelayedInit
-** Descriptions         :   初始化任务延时机制
-** parameters           :   无
+** Function name        :   vTaskWakeUp
+** Descriptions         :   唤醒被挂起的任务
+** parameters           :   task        待唤醒的任务
 ** Returned value       :   无
 ***********************************************************************************************************/
-void vTaskDelayedInit (void) 
+void vTaskWakeUp (Task_t * pxTask)
 {
-    vListInit(&g_xTaskDelayedList);
+	uint32_t uiStatus = uiTaskEnterCritical();
+	
+	if((pxTask->uiState & TINYOS_TASK_STATE_SUSPEND))
+	{
+        // 递减挂起计数，如果为0了，则清除挂起标志，同时设置进入就绪状态
+        if (--pxTask->uiSuspendCount == 0) 
+		{
+			pxTask->uiState &= ~TINYOS_TASK_STATE_SUSPEND;
+			prvTaskSchedRdy(pxTask);
+			
+			prvTaskSched();  // 因为被唤醒任务可能优先级更高，所以需要进行任务调度
+		}
+	}
+	
+	vTaskExitCritical(uiStatus);
 }
+
 
 /**********************************************************************************************************
 ** Function name        :   pxTaskHightestReady
@@ -223,22 +236,28 @@ void vTaskDelayedInit (void)
 Task_t * pxTaskHightestReady (void)
 {
 	uint32_t uiPrio = uiBitmapGetFirstSet(&g_xTaskPrioBitmap);
-	return g_pxTaskTable[uiPrio];
-	
+	Node_t *pxFirstNode = pxListFirst(&g_xTaskTable[uiPrio]);
+	return pxNodeParent(pxFirstNode, Task_t, xLinkNode);
 }
 
-
-
-/*------------------------------------------------------- 静态函数 --------------------------------------------------------*/
-
+/**********************************************************************************************************
+** Function name        :   vTaskSetNext
+** Descriptions         :   设置下一个任务
+** parameters           :   pxTask 
+** Returned value       :   无
+***********************************************************************************************************/
+void vTaskSetNext(Task_t *pxTask)
+{
+	pxNextTask = pxTask;
+}
 
 /**********************************************************************************************************
-** Function name        :   prvTaskSystemTickHandler
+** Function name        :   vTaskSystemTickHandler
 ** Descriptions         :   系统时钟节拍处理
 ** parameters           :   无
 ** Returned value       :   无
 ***********************************************************************************************************/
-static void prvTaskSystemTickHandler(void)
+void vTaskSystemTickHandler(void)
 {
 	uint32_t status = uiTaskEnterCritical();
 	Node_t *pxNode = pxListFirst(&g_xTaskDelayedList);
@@ -257,27 +276,25 @@ static void prvTaskSystemTickHandler(void)
 		}
 	}
 	
+	/* 如果时间片用完的话，则将当前任务移动到链表的最后一项，从而在调度函数中完成任务切换 */
+	if(--pxCurrentTask->slice == 0)
+	{
+		/* 需要进行链表节点数量判断，因为可能调用延时函数，将任务从就绪链表中清除 */
+		if(uiListCount(&g_xTaskTable[pxCurrentTask->uiPrio]) > 0)
+		{
+			vListRemove(&g_xTaskTable[pxCurrentTask->uiPrio], &pxCurrentTask->xLinkNode);
+			pxCurrentTask->slice = TINYOS_SLICE_MAX;
+			vListAddLast(&g_xTaskTable[pxCurrentTask->uiPrio], &pxCurrentTask->xLinkNode);			
+		}
+	}
+	
 	// 防止中断嵌套调用 
 	vTaskExitCritical(status);
 	prvTaskSched();
 }
 
-/**********************************************************************************************************
-** Function name        :   vSetSysTickPeriod
-** Descriptions         :   设置定时器中断触发的间隔
-** parameters           :   无
-** Returned value       :   无
-***********************************************************************************************************/
-static void prvSetSysTickPeriod(uint32_t ms)
-{
-	SysTick->LOAD = ms * SystemCoreClock / 1000 - 1;
-	NVIC_SetPriority(SysTick_IRQn, (1 << __NVIC_PRIO_BITS) - 1);
-	SysTick->VAL   = 0;
-	/* 使用内部时钟源，使能中断，使能定时器 */
-	SysTick->CTRL  = SysTick_CTRL_CLKSOURCE_Msk |
-					 SysTick_CTRL_TICKINT_Msk   |
-					 SysTick_CTRL_ENABLE_Msk;
-}
+
+/*------------------------------------------------------- 静态函数 --------------------------------------------------------*/
 
 
 /**********************************************************************************************************
@@ -375,21 +392,22 @@ static void prvTimeTaskWakeUp (Task_t * pxTask)
 ***********************************************************************************************************/
 static void prvTaskSchedRdy (Task_t * pxTask)
 {
-    g_pxTaskTable[pxTask->uiPrio] = pxTask;
+	vListAddLast(&g_xTaskTable[pxTask->uiPrio], &pxTask->xLinkNode);
     vBitmapSet(&g_xTaskPrioBitmap, pxTask->uiPrio);
 }
 
 /************************************************************************************************************
 ** Descriptions         :   prvTaskSchedUnRdy
 ** Descriptions         :   将任务从就绪列表中移除
-** input parameters     :   task    ÒªÒÆ³ýµÄÈÎÎñ¿é
+** input parameters     :   task    等待从就绪列表中移除的任务
 ** output parameters    :   None
 ** Returned value       :   None
 ***********************************************************************************************************/
 static void prvTaskSchedUnRdy (Task_t * pxTask)
 {
-    g_pxTaskTable[pxTask->uiPrio] = (Task_t *)0;
-    vBitmapClear(&g_xTaskPrioBitmap, pxTask->uiPrio);
+    vListRemove(&g_xTaskTable[pxTask->uiPrio], &pxTask->xLinkNode);
+	if(!g_xTaskTable[pxTask->uiPrio].uiNodeCnt)
+		vBitmapClear(&g_xTaskPrioBitmap, pxTask->uiPrio);
 }
 
 

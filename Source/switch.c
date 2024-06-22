@@ -10,6 +10,30 @@
 #define MEM8(addr)        *(volatile unsigned char*)(addr)
 
 /**********************************************************************************************************
+** Function name        :   uiTaskEnterCritical
+** Descriptions         :   进入临界区
+** parameters           :   无
+** Returned value       :   进入临界区之前的中断状态值
+***********************************************************************************************************/
+uint32_t uiTaskEnterCritical (void)
+{
+	uint32_t uiPrimask = __get_PRIMASK();
+	__disable_irq();
+	return uiPrimask;
+}
+
+/**********************************************************************************************************
+** Function name        :   vTaskExitCritical
+** Descriptions         :   退出临界区
+** parameters           :   无
+** Returned value       :   无
+***********************************************************************************************************/
+void vTaskExitCritical (uint32_t uiStatus)
+{
+	__set_PRIMASK(uiStatus);
+}
+
+/**********************************************************************************************************
 ** Function name        :   PendSV_Handler
 ** Descriptions         :   PendSV异常处理函数
 ** parameters           :   无
