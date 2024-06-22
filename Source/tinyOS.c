@@ -7,7 +7,9 @@ void SysTick_Handler(void);
 static void prvTaskSched(void); 
 static void prvTaskSchedUnRdy (Task_t * pxTask);
 static void prvTaskSchedRdy (Task_t * pxTask);
+static void prvTaskSchedRemove (Task_t * pxTask);
 static void prvTimeTaskWakeUp (Task_t * pxTask);
+static void prvTimeTaskRemove (Task_t * pxTask);
 static void prvTimeTaskWait (Task_t * pxTask, uint32_t uiTicks);
 /****************** 全局变量 *************************/
 
@@ -63,8 +65,11 @@ void vTaskInit(Task_t * pxTask, TaskFunction_pt pxTaskCode, void *pvParam, uint3
 	pxTask->uiDelayTicks = 0;
 	pxTask->uiPrio = uiPrio;
 	pxTask->uiState = TINYOS_TASK_STATE_RDY;
-	pxTask->slice = TINYOS_SLICE_MAX;
+	pxTask->uiSlice = TINYOS_SLICE_MAX;
 	pxTask->uiSuspendCount = 0;
+	pxTask->vCleanResource = (void (*)(void *))0;
+	pxTask->pvCleanParam = (void *)0;
+	pxTask->cRequsetDeleteFlag = 0;
 	
 	vNodeInit(&pxTask->xDelayNode);
 	vNodeInit(&pxTask->xLinkNode);                       // 初始化链接结点
@@ -174,6 +179,102 @@ void vTaskSchedDisable(void)
 
 
 
+
+/**********************************************************************************************************
+** Function name        :   vTaskSetCleanCallFunc
+** Descriptions         :   设置任务被删除时调用的清理函数
+** parameters           :   pxTask  待设置的任务
+** parameters           :   pvClean  清理函数入口地址
+** parameters           :   pvParam  传递给清理函数的参数
+** Returned value       :   无
+***********************************************************************************************************/
+void vTaskSetCleanCallFunc (Task_t * pxTask, void (*pvClean)(void *param), void * pvParam)
+{
+	pxTask->vCleanResource = pvClean;
+	pxTask->pvCleanParam = pvParam;
+}
+
+
+/**********************************************************************************************************
+** Function name        :   vTaskForceDelete
+** Descriptions         :   强制删除指定的任务
+** parameters           :   task  需要删除的任务
+** Returned value       :   无
+***********************************************************************************************************/
+void vTaskForceDelete(Task_t * pxTask)
+{
+	uint32_t uiStatus = uiTaskEnterCritical();
+	
+	if( pxTask->uiState & TINYOS_TASK_STATE_DELAYED)  // 如果任务位于延时队列中
+	{
+		prvTimeTaskRemove(pxTask);
+	}
+	else if(!(pxTask->uiState & TINYOS_TASK_STATE_SUSPEND))  // 如果任务处于就绪链表中
+	{
+		prvTaskSchedRemove (pxTask);
+	}
+	
+	if(pxTask->vCleanResource)                        // 如果任务有清理资源函数，则调用
+		pxTask->vCleanResource(pxTask->pvCleanParam);
+	
+	if(pxCurrentTask == pxTask)                       // 如果被删除的是当前任务，则进行任务调度
+		prvTaskSched();
+	
+	vTaskExitCritical(uiStatus);
+}
+
+
+/**********************************************************************************************************
+** Function name        :   vTaskRequestDelete
+** Descriptions         :   请求删除某个任务，由任务自己决定是否删除自己
+** parameters           :   pxTask  需要删除的任务
+** Returned value       :   无
+***********************************************************************************************************/
+void vTaskRequestDelete(Task_t * pxTask)
+{
+	uint32_t uiStatus = uiTaskEnterCritical();
+	pxTask->cRequsetDeleteFlag = 1;
+	vTaskExitCritical(uiStatus);
+}
+
+/**********************************************************************************************************
+** Function name        :   cTaskIsRequestedDelete
+** Descriptions         :   是否已经被请求删除自己
+** parameters           :   无
+** Returned value       :   非0表示请求删除，0表示无请求
+***********************************************************************************************************/
+uint8_t cTaskIsRequestedDelete (void)
+{
+	uint8_t cDelete;
+	uint32_t uiStatus = uiTaskEnterCritical();
+	cDelete = pxCurrentTask->cRequsetDeleteFlag;
+	vTaskExitCritical(uiStatus);
+	return cDelete;
+}
+
+/**********************************************************************************************************
+** Function name        :   cTaskIsRequestedDelete
+** Descriptions         :   是否已经被请求删除自己
+** parameters           :   无
+** Returned value       :   非0表示请求删除，0表示无请求
+***********************************************************************************************************/
+void vTaskDeleteSelf (void)
+{
+	uint32_t uiStatus = uiTaskEnterCritical();
+	
+	// 任务在调用该函数时，必须处于就绪态，不可能处于延时或者挂起状态
+	// 所以，只要从就绪队列中移除即可
+	prvTaskSchedRemove(pxCurrentTask);
+	
+	if(pxCurrentTask->vCleanResource)
+		pxCurrentTask->vCleanResource(pxCurrentTask->pvCleanParam);
+	
+	prvTaskSched();
+	
+	vTaskExitCritical(uiStatus);
+}
+
+
 /**********************************************************************************************************
 ** Function name        :   tTaskSuspend
 ** Descriptions         :   挂起指定的任务
@@ -277,13 +378,13 @@ void vTaskSystemTickHandler(void)
 	}
 	
 	/* 如果时间片用完的话，则将当前任务移动到链表的最后一项，从而在调度函数中完成任务切换 */
-	if(--pxCurrentTask->slice == 0)
+	if(--pxCurrentTask->uiSlice == 0)
 	{
 		/* 需要进行链表节点数量判断，因为可能调用延时函数，将任务从就绪链表中清除 */
 		if(uiListCount(&g_xTaskTable[pxCurrentTask->uiPrio]) > 0)
 		{
 			vListRemove(&g_xTaskTable[pxCurrentTask->uiPrio], &pxCurrentTask->xLinkNode);
-			pxCurrentTask->slice = TINYOS_SLICE_MAX;
+			pxCurrentTask->uiSlice = TINYOS_SLICE_MAX;
 			vListAddLast(&g_xTaskTable[pxCurrentTask->uiPrio], &pxCurrentTask->xLinkNode);			
 		}
 	}
@@ -291,6 +392,28 @@ void vTaskSystemTickHandler(void)
 	// 防止中断嵌套调用 
 	vTaskExitCritical(status);
 	prvTaskSched();
+}
+
+/**********************************************************************************************************
+** Function name        :   vTaskGetInfo
+** Descriptions         :   获取任务相关信息
+** parameters           :   task 需要查询的任务
+** parameters           :   info 任务信息存储结构
+** Returned value       :   无
+***********************************************************************************************************/
+void vTaskGetInfo (Task_t * pxTask, TaskInfo_t * pxInfo)
+{
+   // 进入临界区
+    uint32_t uiStatus = uiTaskEnterCritical();
+
+    pxInfo->uiDelayTicks = pxTask->uiDelayTicks;                // 延时信息
+    pxInfo->uiPrio = pxTask->uiPrio;                            // 任务优先级
+    pxInfo->uiState = pxTask->uiState;                          // 任务状态
+    pxInfo->uiSlice = pxTask->uiSlice;                          // 剩余时间片
+    pxInfo->uiSuspendCount = pxTask->uiSuspendCount;            // 被挂起的次数
+
+    // 退出临界区
+    vTaskExitCritical(uiStatus); 
 }
 
 
@@ -381,6 +504,18 @@ static void prvTimeTaskWakeUp (Task_t * pxTask)
     pxTask->uiState &= ~TINYOS_TASK_STATE_DELAYED;
 }
 
+/**********************************************************************************************************
+** Function name        :   prvTimeTaskRemove
+** Descriptions         :   将延时的任务从延时队列中移除
+** input parameters     :   task  需要移除的任务
+** output parameters    :   无
+** Returned value       :   无
+***********************************************************************************************************/
+static void prvTimeTaskRemove (Task_t * pxTask)
+{
+    vListRemove(&g_xTaskDelayedList, &(pxTask->xDelayNode));
+    pxTask->uiState &= ~TINYOS_TASK_STATE_DELAYED;
+}
 
 
 /**********************************************************************************************************
@@ -406,10 +541,24 @@ static void prvTaskSchedRdy (Task_t * pxTask)
 static void prvTaskSchedUnRdy (Task_t * pxTask)
 {
     vListRemove(&g_xTaskTable[pxTask->uiPrio], &pxTask->xLinkNode);
-	if(!g_xTaskTable[pxTask->uiPrio].uiNodeCnt)
+	if(!uiListCount(&g_xTaskTable[pxTask->uiPrio]))
 		vBitmapClear(&g_xTaskPrioBitmap, pxTask->uiPrio);
 }
 
+
+/************************************************************************************************************
+** Descriptions         :   prvTaskSchedUnRdy
+** Descriptions         :   将任务从就绪列表中移除
+** input parameters     :   task    等待从就绪列表中移除的任务
+** output parameters    :   None
+** Returned value       :   None
+***********************************************************************************************************/
+static void prvTaskSchedRemove (Task_t * pxTask)
+{
+    vListRemove(&g_xTaskTable[pxTask->uiPrio], &pxTask->xLinkNode);
+	if(!uiListCount(&g_xTaskTable[pxTask->uiPrio]))
+		vBitmapClear(&g_xTaskPrioBitmap, pxTask->uiPrio);
+}
 
 
 

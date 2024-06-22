@@ -42,15 +42,21 @@ void delay(void)
 	;
 }
 
-
 int iTask1Flag;
 int iShareCount;
+
+void task1DestroyFunc (void * param) 
+{
+    iTask1Flag = 1;
+}
+
 static void prvTask1Entry (void * pvParam) 
 {
+	int cnt = 0;
+	
+	vTaskSetCleanCallFunc(pxCurrentTask, task1DestroyFunc, (void *)0);
     for (;;) 
     {
-		int iVar;
-		
 //		vTaskSchedDisable();
 //		iVar = iShareCount;
 //		iVar ++;
@@ -61,12 +67,18 @@ static void prvTask1Entry (void * pvParam)
         vTaskDelay(pdMS_TO_TICKS(10));
         iTask1Flag = 0;
         vTaskDelay(pdMS_TO_TICKS(10));
+		cnt++;
+		if(cnt == 400)
+			vTaskForceDelete(&xTask2);
+		else if(cnt == 800)
+			vTaskForceDelete(&xTask1);
     }
 }
 
 int iTask2Flag;
 static void prvTask2Entry (void * pvParam) 
 {
+	int cnt = 0;
     for (;;) 
     {
 //		vTaskSchedDisable();
@@ -74,13 +86,13 @@ static void prvTask2Entry (void * pvParam)
 //		vTaskSchedEnable();
 		
         iTask2Flag = 1;
-        vTaskDelay(pdMS_TO_TICKS(20));
-		//vTaskWakeUp(&xTask3);
-		//delay();
+        vTaskDelay(pdMS_TO_TICKS(10));
         iTask2Flag = 0;
-        vTaskDelay(pdMS_TO_TICKS(20));
-		//vTaskWakeUp(&xTask3);
-		//delay();
+        vTaskDelay(pdMS_TO_TICKS(10));
+		cnt ++;
+		if(cnt == 200)
+			vTaskRequestDelete(&xTask3);
+		
     }
 }
 
@@ -95,12 +107,14 @@ static void prvTask3Entry (void * pvParam)
 		
         iTask3Flag = 1;
         vTaskDelay(pdMS_TO_TICKS(10));
-		vTaskSuspend(&xTask3);
-		//delay();
         iTask3Flag = 0;
         vTaskDelay(pdMS_TO_TICKS(10));
-		vTaskSuspend(&xTask3);
-		//delay();
+		
+		if(cTaskIsRequestedDelete())
+		{
+			iTask3Flag = 1;
+			vTaskDeleteSelf();
+		}
     }
 }
 

@@ -9,6 +9,7 @@
 # 不忽略含以下后缀的文件（而这一步是把上面文件夹中，指定类型的文件设为不忽略）
 !*.cpp
 !*.c
+!*.h
 !*.py
 !*.java
 !*.txt
@@ -39,6 +40,7 @@
 # ignore all the .history folder in this git directory including subdir
 .history/
 
+.gitignore
 
 
 # 不忽略特定文件夹  
