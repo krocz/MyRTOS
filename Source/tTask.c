@@ -1,11 +1,5 @@
 #include "tinyOS.h"
 
-/***************** 静态全局函数声明 ************************/
-static void prvTaskSched(void); 
-static void prvTaskSchedRemove (Task_t * pxTask);
-static void prvTimeTaskWakeUp (Task_t * pxTask);
-static void prvTimeTaskRemove (Task_t * pxTask);
-static void prvTimeTaskWait (Task_t * pxTask, uint32_t uiTicks);
 /****************** 全局变量 *************************/
 
 // 当前任务：记录当前是哪个任务正在运行
@@ -66,8 +60,14 @@ void vTaskInit(Task_t * pxTask, TaskFunction_pt pxTaskCode, void *pvParam, uint3
 	pxTask->pvCleanParam = (void *)0;
 	pxTask->cRequsetDeleteFlag = 0;
 	
+	// 任务正在等待的事件类型
+    pxTask->pxWaitEvent = (Event_t *)0;
+	pxTask->pvEventMsg = (void *)0;
+	pxTask->uiWaitEventResult = eErrorNoError;
+	
 	vNodeInit(&pxTask->xDelayNode);
 	vNodeInit(&pxTask->xLinkNode);                       // 初始化链接结点
+	vNodeInit(&pxTask->xEventNode);
 	vTaskSchedRdy(pxTask);
 }
 
@@ -103,11 +103,11 @@ void vTaskDelay(uint32_t uiDelay)
 {
 	uint32_t uiStatus = uiTaskEnterCritical();
 	// 设置延时值，插入延时队列
-	prvTimeTaskWait(pxCurrentTask, uiDelay);
+	vTimeTaskWait(pxCurrentTask, uiDelay);
 	// 将任务从就绪表中移除
-	prvTaskSchedUnRdy(pxCurrentTask);
+	vTaskSchedUnRdy(pxCurrentTask);
 	vTaskExitCritical(uiStatus);
-	prvTaskSched();
+	vTaskSched();
 }
 
 /**********************************************************************************************************
@@ -142,7 +142,7 @@ void vTaskSchedEnable(void)
 	{
 		if(--g_cSchedLockCount == 0)
 		{
-			prvTaskSched();
+			vTaskSched();
 		}		
 	}
 	vTaskExitCritical(uiStatus);
@@ -168,14 +168,6 @@ void vTaskSchedDisable(void)
 
 
 
-
-
-
-
-
-
-
-
 /**********************************************************************************************************
 ** Function name        :   vTaskSchedRdy
 ** Descriptions         :   将任务设置为就绪状态
@@ -197,6 +189,20 @@ void vTaskSchedRdy (Task_t * pxTask)
 ** Returned value       :   None
 ***********************************************************************************************************/
 void vTaskSchedUnRdy (Task_t * pxTask)
+{
+    vListRemove(&g_xTaskTable[pxTask->uiPrio], &pxTask->xLinkNode);
+	if(!uiListCount(&g_xTaskTable[pxTask->uiPrio]))
+		vBitmapClear(&g_xTaskPrioBitmap, pxTask->uiPrio);
+}
+
+/************************************************************************************************************
+** Descriptions         :   vTaskSchedUnRdy
+** Descriptions         :   将任务从就绪列表中移除
+** input parameters     :   task    等待从就绪列表中移除的任务
+** output parameters    :   None
+** Returned value       :   None
+***********************************************************************************************************/
+void vTaskSchedRemove (Task_t * pxTask)
 {
     vListRemove(&g_xTaskTable[pxTask->uiPrio], &pxTask->xLinkNode);
 	if(!uiListCount(&g_xTaskTable[pxTask->uiPrio]))
@@ -230,18 +236,18 @@ void vTaskForceDelete(Task_t * pxTask)
 	
 	if( pxTask->uiState & TINYOS_TASK_STATE_DELAYED)  // 如果任务位于延时队列中
 	{
-		prvTimeTaskRemove(pxTask);
+		vTimeTaskRemove(pxTask);
 	}
 	else if(!(pxTask->uiState & TINYOS_TASK_STATE_SUSPEND))  // 如果任务处于就绪链表中
 	{
-		prvTaskSchedRemove (pxTask);
+		vTaskSchedRemove (pxTask);
 	}
 	
 	if(pxTask->vCleanResource)                        // 如果任务有清理资源函数，则调用
 		pxTask->vCleanResource(pxTask->pvCleanParam);
 	
 	if(pxCurrentTask == pxTask)                       // 如果被删除的是当前任务，则进行任务调度
-		prvTaskSched();
+		vTaskSched();
 	
 	vTaskExitCritical(uiStatus);
 }
@@ -287,12 +293,12 @@ void vTaskDeleteSelf (void)
 	
 	// 任务在调用该函数时，必须处于就绪态，不可能处于延时或者挂起状态
 	// 所以，只要从就绪队列中移除即可
-	prvTaskSchedRemove(pxCurrentTask);
+	vTaskSchedRemove(pxCurrentTask);
 	
 	if(pxCurrentTask->vCleanResource)
 		pxCurrentTask->vCleanResource(pxCurrentTask->pvCleanParam);
 	
-	prvTaskSched();
+	vTaskSched();
 	
 	vTaskExitCritical(uiStatus);
 }
@@ -315,10 +321,10 @@ void vTaskSuspend(Task_t * pxTask)
         if (++pxTask->uiSuspendCount <= 1)
 		{
 			pxTask->uiState |= TINYOS_TASK_STATE_SUSPEND;
-			prvTaskSchedUnRdy(pxTask);   // 从就绪队列中移除该任务
+			vTaskSchedUnRdy(pxTask);   // 从就绪队列中移除该任务
 			
 			if(pxTask == pxCurrentTask)  // 如果该任务为当前任务，则进行任务切换
-				prvTaskSched();
+				vTaskSched();
 		}
 	}
 	
@@ -343,7 +349,7 @@ void vTaskWakeUp (Task_t * pxTask)
 			pxTask->uiState &= ~TINYOS_TASK_STATE_SUSPEND;
 			vTaskSchedRdy(pxTask);
 			
-			prvTaskSched();  // 因为被唤醒任务可能优先级更高，所以需要进行任务调度
+			vTaskSched();  // 因为被唤醒任务可能优先级更高，所以需要进行任务调度
 		}
 	}
 	
@@ -392,8 +398,15 @@ void vTaskSystemTickHandler(void)
 		pxTask->uiDelayTicks--;
 		while(!pxTask->uiDelayTicks)
 		{
-			prvTimeTaskWakeUp(pxTask);   // 将任务从延时队列中删除
+			vTimeTaskWakeUp(pxTask);   // 将任务从延时队列中删除
 			vTaskSchedRdy(pxTask);     // 根据优先级将任务加入就绪优先级数组
+			
+			// 如果任务还处于等待事件的状态，则将其从事件等待队列中唤醒
+			if (pxTask->pxWaitEvent)
+			{
+				vEventRemoveTask(pxTask, (void *)0, eErrorTimeout);
+			}
+			
 			pxNode = pxListNext(&g_xTaskDelayedList, pxNode);
 			if(!pxNode) break;
 			pxTask = pxNodeParent(pxNode, Task_t, xDelayNode);
@@ -414,7 +427,7 @@ void vTaskSystemTickHandler(void)
 	
 	// 防止中断嵌套调用 
 	vTaskExitCritical(status);
-	prvTaskSched();
+	vTaskSched();
 }
 
 /**********************************************************************************************************
@@ -440,16 +453,13 @@ void vTaskGetInfo (Task_t * pxTask, TaskInfo_t * pxInfo)
 }
 
 
-/*------------------------------------------------------- 静态函数 --------------------------------------------------------*/
-
-
 /**********************************************************************************************************
-** Function name        :   prvTaskSched
+** Function name        :   vTaskSched
 ** Descriptions         :   任务调度接口。tinyOS通过它来选择下一个具体的任务，然后切换至该任务运行。
 ** parameters           :   无
 ** Returned value       :   无
 ***********************************************************************************************************/
-static void prvTaskSched ( void ) 
+void vTaskSched ( void ) 
 {    
 	Task_t * pxTempTask;
 	uint32_t status = uiTaskEnterCritical();
@@ -472,14 +482,14 @@ static void prvTaskSched ( void )
 
 
 /**********************************************************************************************************
-** Function name        :   prvTimeTaskWait
+** Function name        :   vTimeTaskWait
 ** Descriptions         :   将任务加入延时队列中
 ** input parameters     :   task    需要延时的任务
 **                          ticks   延时的ticks
 ** output parameters    :   无
 ** Returned value       :   无
 ***********************************************************************************************************/
-static void prvTimeTaskWait (Task_t * pxTask, uint32_t uiTicks)
+void vTimeTaskWait (Task_t * pxTask, uint32_t uiTicks)
 {
 	int sum = 0, i;
 	Node_t *pxCur = g_xTaskDelayedList.xHeadNode.pxNextNode;
@@ -504,7 +514,7 @@ static void prvTimeTaskWait (Task_t * pxTask, uint32_t uiTicks)
 	}
 	else if(pxTask->uiDelayTicks)  // 否则，任务已经插入到队列中，则将任务后面的节点的时延进行更新
 	{
-		while(pxCur != &g_xTaskDelayedList.xHeadNode)
+		while(pxCur)
 		{
 			Task_t *pxTemp = pxNodeParent(pxCur, Task_t, xDelayNode);
 			pxTemp->uiDelayTicks -= pxTask->uiDelayTicks;
@@ -515,45 +525,31 @@ static void prvTimeTaskWait (Task_t * pxTask, uint32_t uiTicks)
 }
 
 /**********************************************************************************************************
-** Function name        :   prvTimeTaskWakeUp
+** Function name        :   vTimeTaskWakeUp
 ** Descriptions         :   将延时的任务从延时队列中唤醒
 ** input parameters     :   pxTask  需要唤醒的任务
 ** output parameters    :   无
 ** Returned value       :   无
 ***********************************************************************************************************/
-static void prvTimeTaskWakeUp (Task_t * pxTask)
+void vTimeTaskWakeUp (Task_t * pxTask)
 {
     vListRemove(&g_xTaskDelayedList, &(pxTask->xDelayNode));
     pxTask->uiState &= ~TINYOS_TASK_STATE_DELAYED;
 }
 
 /**********************************************************************************************************
-** Function name        :   prvTimeTaskRemove
+** Function name        :   vTimeTaskRemove
 ** Descriptions         :   将延时的任务从延时队列中移除
 ** input parameters     :   task  需要移除的任务
 ** output parameters    :   无
 ** Returned value       :   无
 ***********************************************************************************************************/
-static void prvTimeTaskRemove (Task_t * pxTask)
+void vTimeTaskRemove (Task_t * pxTask)
 {
     vListRemove(&g_xTaskDelayedList, &(pxTask->xDelayNode));
     pxTask->uiState &= ~TINYOS_TASK_STATE_DELAYED;
 }
 
-
-/************************************************************************************************************
-** Descriptions         :   prvTaskSchedUnRdy
-** Descriptions         :   将任务从就绪列表中移除
-** input parameters     :   task    等待从就绪列表中移除的任务
-** output parameters    :   None
-** Returned value       :   None
-***********************************************************************************************************/
-static void prvTaskSchedRemove (Task_t * pxTask)
-{
-    vListRemove(&g_xTaskTable[pxTask->uiPrio], &pxTask->xLinkNode);
-	if(!uiListCount(&g_xTaskTable[pxTask->uiPrio]))
-		vBitmapClear(&g_xTaskPrioBitmap, pxTask->uiPrio);
-}
 
 
 

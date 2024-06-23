@@ -4,13 +4,12 @@
 Task_t xTask1, xTask2, xTask3, xIdleTask;
 TaskStack_t xTask1Env[1024], xTask2Env[1024], xTask3Env[1024], xTaskIdleEnv[1024];
 
-
 /************************************** 静态函数声明 ***************************************/
 static void prvTask1Entry (void * param);
 static void prvTask2Entry (void * param);
 static void prvTask3Entry (void * param);
 static void prvTaskIdleEntry (void * param);
-
+Sem_t xSem1, xSem2;
 
 int main ()
 {
@@ -50,12 +49,13 @@ void task1DestroyFunc (void * param)
     iTask1Flag = 1;
 }
 
+int iFlag = 0;
 static void prvTask1Entry (void * pvParam) 
-{
-	int cnt = 0;
-	
+{	
+	uint32_t uiStatus;
 	vTaskSetCleanCallFunc(pxCurrentTask, task1DestroyFunc, (void *)0);
-    for (;;) 
+	vSemInit(&xSem1, 0, 0);
+	for (;;) 
     {
 //		vTaskSchedDisable();
 //		iVar = iShareCount;
@@ -67,18 +67,16 @@ static void prvTask1Entry (void * pvParam)
         vTaskDelay(pdMS_TO_TICKS(10));
         iTask1Flag = 0;
         vTaskDelay(pdMS_TO_TICKS(10));
-		cnt++;
-		if(cnt == 400)
-			vTaskForceDelete(&xTask2);
-		else if(cnt == 800)
-			vTaskForceDelete(&xTask1);
+		uiStatus = uiSemWait(&xSem1, pdMS_TO_TICKS(10));
+		if(uiStatus == eErrorTimeout)
+			iFlag = !iFlag;
     }
 }
 
 int iTask2Flag;
 static void prvTask2Entry (void * pvParam) 
 {
-	int cnt = 0;
+	vSemInit(&xSem2, 0, 1);
     for (;;) 
     {
 //		vTaskSchedDisable();
@@ -89,16 +87,14 @@ static void prvTask2Entry (void * pvParam)
         vTaskDelay(pdMS_TO_TICKS(10));
         iTask2Flag = 0;
         vTaskDelay(pdMS_TO_TICKS(10));
-		cnt ++;
-		if(cnt == 200)
-			vTaskRequestDelete(&xTask3);
-		
+		uiSemWait(&xSem2, 0);
     }
 }
 
 int iTask3Flag;
 static void prvTask3Entry (void * pvParam) 
 {
+	int cnt = 0;
     for (;;) 
     {
 //		vTaskSchedDisable();
@@ -109,12 +105,9 @@ static void prvTask3Entry (void * pvParam)
         vTaskDelay(pdMS_TO_TICKS(10));
         iTask3Flag = 0;
         vTaskDelay(pdMS_TO_TICKS(10));
-		
-		if(cTaskIsRequestedDelete())
-		{
-			iTask3Flag = 1;
-			vTaskDeleteSelf();
-		}
+		cnt++;
+		if(cnt == 100)
+			vSemNotify(&xSem2);
     }
 }
 

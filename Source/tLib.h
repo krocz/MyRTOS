@@ -180,12 +180,12 @@ void vListAddFirst (List_t * pxList, Node_t * pxNode);
 void vListAddLast (List_t * pxList, Node_t * pxNode);
 
 /**********************************************************************************************************
-** Function name        :   vListRemoveFirst
+** Function name        :   pxListRemoveFirst
 ** Descriptions         :   移除链表中的第1个结点
 ** parameters           :   list 待移除链表
 ** Returned value       :   如果链表为空，返回0，否则的话，返回第1个结点
 ***********************************************************************************************************/
-Node_t * vListRemoveFirst (List_t * pxList);
+Node_t * pxListRemoveFirst (List_t * pxList);
 
 /**********************************************************************************************************
 ** Function name        :   vListInsertForward
