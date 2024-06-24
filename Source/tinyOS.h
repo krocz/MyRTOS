@@ -25,6 +25,7 @@ typedef enum {
 	eErrorTimeout,                      // 等待超时
 	eErrorResourceUnavaliable,          // 资源不足
 	eErrorDel,						    // 被删除
+	eErrorResourceFull,                 // 资源缓冲区不足
 }Error_e;
 
 /**********************************************************************************************************
