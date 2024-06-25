@@ -125,3 +125,56 @@ uint32_t uiMboxNotify (Mbox_t * pxMbox, void * pvMsg, uint32_t uiNotifyOption)
 	vTaskExitCritical(uiStatus);
 	return eErrorNoError;
 }
+
+
+/**********************************************************************************************************
+** Function name        :   vMboxFlush
+** Descriptions         :   清空邮箱中所有消息
+** parameters           :   pxMbox 等待清空的邮箱
+** Returned value       :   无
+***********************************************************************************************************/
+void vMboxFlush(Mbox_t * pxMbox)
+{
+	uint32_t uiStatus = uiTaskEnterCritical();
+	// 仅在没有等待任务时，才说明可能存在消息
+	if(uiEventWaitCount(&pxMbox->xEvent) == 0)  
+	{
+		pxMbox->uiCnt = 0;
+		pxMbox->uiRead = 0;
+		pxMbox->uiWrite = 0;
+	}
+	vTaskExitCritical(uiStatus);
+}
+
+/**********************************************************************************************************
+** Function name        :   tMboxDestroy
+** Descriptions         :   销毁邮箱
+** parameters           :   mbox 需要销毁的邮箱
+** Returned value       :   因销毁该信号量而唤醒的任务数量
+***********************************************************************************************************/
+uint32_t uiMboxDestroy(Mbox_t * pxMbox)
+{
+	uint32_t uiStatus = uiTaskEnterCritical();
+	uint32_t uiCnt = uiEventRemoveAll(&pxMbox->xEvent, (void *)0, eErrorDel);
+	vTaskExitCritical(uiStatus);
+	if(uiCnt)           // 清空过程中可能有任务就绪，执行一次调度
+		vTaskSched();
+	
+	return uiCnt;
+}
+
+/**********************************************************************************************************
+** Function name        :   vMboxGetInfo
+** Descriptions         :   查询状态信息
+** parameters           :   pxMbox 查询的邮箱
+** parameters           :   pxMboxInfo 状态查询存储的位置
+** Returned value       :   无
+***********************************************************************************************************/
+void vMboxGetInfo(Mbox_t * pxMbox, MboxInfo_t *pxMboxInfo)
+{
+	uint32_t uiStatus = uiTaskEnterCritical();
+	pxMboxInfo->uiCnt     = pxMbox->uiCnt;
+	pxMboxInfo->uiTaskCnt = uiEventWaitCount(&pxMbox->xEvent);
+	pxMboxInfo->uiMaxCnt  = pxMbox->uiMaxCnt;
+	vTaskExitCritical(uiStatus);
+}

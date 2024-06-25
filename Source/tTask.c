@@ -512,14 +512,10 @@ void vTimeTaskWait (Task_t * pxTask, uint32_t uiTicks)
 		pxTask->uiDelayTicks = uiTicks - sum;
 		vListAddLast(&g_xTaskDelayedList, &pxTask->xDelayNode);
 	}
-	else if(pxTask->uiDelayTicks)  // 否则，任务已经插入到队列中，则将任务后面的节点的时延进行更新
+	else if(pxTask->uiDelayTicks)  // 否则，任务已经插入到队列中，则将任务后面的第一个节点的时延进行更新
 	{
-		while(pxCur)
-		{
-			Task_t *pxTemp = pxNodeParent(pxCur, Task_t, xDelayNode);
-			pxTemp->uiDelayTicks -= pxTask->uiDelayTicks;
-			pxCur = pxListNext(&g_xTaskDelayedList, pxCur);
-		}
+		Task_t *pxTemp = pxNodeParent(pxCur, Task_t, xDelayNode);
+		pxTemp->uiDelayTicks -= pxTask->uiDelayTicks;
 	}
     pxTask->uiState |= TINYOS_TASK_STATE_DELAYED;
 }

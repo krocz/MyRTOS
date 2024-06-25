@@ -23,6 +23,15 @@ typedef struct _Mbox_t{
 	void **pdvMsgBuf;
 }Mbox_t;
 
+typedef struct _MboxInfo {
+	// 当前的消息数量
+    uint32_t uiCnt;
+    // 最大允许容纳的消息数量
+    uint32_t uiMaxCnt;
+    // 当前等待的任务计数
+    uint32_t uiTaskCnt;
+}MboxInfo_t;
+
 /**********************************************************************************************************
 ** Function name        :   vMboxInit
 ** Descriptions         :   初始化邮箱
@@ -61,5 +70,30 @@ uint32_t uiMboxNoWaitGet (Mbox_t * pxMbox, void **pdvMsg);
 ** Returned value       :   tErrorResourceFull
 ***********************************************************************************************************/
 uint32_t uiMboxNotify (Mbox_t * pxMbox, void * pvMsg, uint32_t uiNotifyOption);
+
+/**********************************************************************************************************
+** Function name        :   vMboxGetInfo
+** Descriptions         :   查询状态信息
+** parameters           :   pxMbox 查询的邮箱
+** parameters           :   pxMboxInfo 状态查询存储的位置
+** Returned value       :   无
+***********************************************************************************************************/
+void vMboxGetInfo(Mbox_t * pxMbox, MboxInfo_t *pxMboxInfo);
+
+/**********************************************************************************************************
+** Function name        :   tMboxDestroy
+** Descriptions         :   销毁邮箱
+** parameters           :   mbox 需要销毁的邮箱
+** Returned value       :   因销毁该信号量而唤醒的任务数量
+***********************************************************************************************************/
+uint32_t uiMboxDestroy(Mbox_t * pxMbox);
+
+/**********************************************************************************************************
+** Function name        :   vMboxFlush
+** Descriptions         :   清空邮箱中所有消息
+** parameters           :   pxMbox 等待清空的邮箱
+** Returned value       :   无
+***********************************************************************************************************/
+void vMboxFlush(Mbox_t * pxMbox);
 
 #endif
