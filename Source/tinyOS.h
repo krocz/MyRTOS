@@ -22,6 +22,8 @@
 
 #include "tMbox.h"
 
+#include "tMemBlock.h"
+
 typedef enum {
 	eErrorNoError = 0,                  // 没有错误
 	eErrorTimeout,                      // 等待超时

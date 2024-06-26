@@ -1,5 +1,4 @@
 #include "tinyOS.h"
-#include "tConfig.h"
 /************************************** 全局变量 ***************************************/
 Task_t xTask1, xTask2, xTask3, xTask4, xIdleTask;
 TaskStack_t xTask1Env[1024], xTask2Env[1024], xTask3Env[1024], xTask4Env[1024], xTaskIdleEnv[1024];
@@ -10,10 +9,9 @@ static void prvTask2Entry (void * param);
 static void prvTask3Entry (void * param);
 static void prvTask4Entry (void * param);
 static void prvTaskIdleEntry (void * param);
-Mbox_t xMbox1, xMbox2;
-void * pvListMbox1MsgBuf[20];
-void * pvListMobx2MsgBuf[20];
-uint32_t listMsg[20];
+
+uint8_t cMem[20][100];
+MemBlock_t xMemBlock;
 
 int main ()
 {
@@ -57,24 +55,22 @@ void task1DestroyFunc (void * param)
 int iFlag = 0;
 static void prvTask1Entry (void * pvParam) 
 {	
-	vTaskSetCleanCallFunc(pxCurrentTask, task1DestroyFunc, (void *)0);
+	uint8_t i;
+	uint8_t (*pListBlock[20])[100];
+	vMemBlockInit(&xMemBlock, (uint8_t *)cMem, 100, 20);
+	for(i = 0; i < 20; i++)
+		uiMemBlockWait(&xMemBlock, (uint8_t **)&pListBlock[i], 0);
+	vTaskDelay(pdMS_TO_TICKS(2));
 	
-	vMboxInit(&xMbox1, pvListMbox1MsgBuf, 20);
+	for(i = 0; i < 20; i++)
+	{
+		memset(pListBlock[i], i, 100);
+		vMemBlockNotify(&xMemBlock, (uint8_t *)pListBlock[i]);
+		vTaskDelay(pdMS_TO_TICKS(2));
+	}
+	
 	for (;;) 
     {
-		uint32_t i = 0;
-		for(i = 0; i < 20; i++)
-		{
-			listMsg[i] = i;
-			uiMboxNotify(&xMbox1, &listMsg[i], MBOXSENDNORMAL);
-		}
-		vTaskDelay(pdMS_TO_TICKS(100));
-		for(i = 0; i < 20; i++)
-		{
-			listMsg[i] = i;
-			uiMboxNotify(&xMbox1, &listMsg[i], MBOXSENDFRONT);
-		}
-		vTaskDelay(pdMS_TO_TICKS(100));
         iTask1Flag = 1;
         vTaskDelay(pdMS_TO_TICKS(10));
         iTask1Flag = 0;
@@ -88,24 +84,17 @@ static void prvTask2Entry (void * pvParam)
 {
     for (;;) 
     {
-		void * pvMsg;
-		uint32_t uiErr = uiMboxWait(&xMbox1, &pvMsg, 10);
-		if(uiErr == eErrorNoError)
-		{
-			iTask2Flag = *(uint32_t *)pvMsg;
-			vTaskDelay(pdMS_TO_TICKS(1));
-		}
+		uint8_t (*pListBlock)[100];
+		uiMemBlockWait(&xMemBlock, (uint8_t **)&pListBlock, 0);
+		iTask2Flag = *(uint8_t *)pListBlock;
     }
 }
 
 int iTask3Flag;
 static void prvTask3Entry (void * pvParam) 
 {
-	vMboxInit(&xMbox2, pvListMobx2MsgBuf, 20);
     for (;;) 
     {
-		void * pvMsg;
-		uiMboxWait(&xMbox2, &pvMsg, 100);
         iTask3Flag = 1;
         vTaskDelay(pdMS_TO_TICKS(10));
         iTask3Flag = 0;

@@ -8,6 +8,7 @@ typedef enum {
 	eEventTypeUnknown = 0,     // 未知类型
 	eEventTypeSem,             // 信号量类型
 	eEventTypeMbox,            // 邮箱类型
+	eEventTypeMemBlock,        // 存储块类型
 }EventType_e;
 
 typedef struct _Event{
