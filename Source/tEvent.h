@@ -9,6 +9,8 @@ typedef enum {
 	eEventTypeSem,             // 信号量类型
 	eEventTypeMbox,            // 邮箱类型
 	eEventTypeMemBlock,        // 存储块类型
+	eEventTypeFlagGroup,
+	eEventTYpeMutex,
 }EventType_e;
 
 typedef struct _Event{
@@ -46,6 +48,17 @@ void vEventWait(Event_t * pxEvent, Task_t * pxTask, void * pvMsg, uint32_t uiSta
 ** Returned value       :   首个等待的任务，如果没有任务等待，则返回0
 ***********************************************************************************************************/
 Task_t * pxEventWakeUp (Event_t * pxEvent, void * pvMsg, uint32_t uiResult);
+
+/**********************************************************************************************************
+** Function name        :   vEventWakeUpTask
+** Descriptions         :   从事件控制块中唤醒指定任务
+** parameters           :   event 事件控制块
+** parameters           :   task 等待唤醒的任务
+** parameters           :   msg 事件消息
+** parameters           :   result 告知事件的等待结果
+** Returned value       :   首个等待的任务，如果没有任务等待，则返回0
+***********************************************************************************************************/
+void vEventWakeUpTask (Event_t * pxEvent, Task_t * pxTask, void * pvMsg, uint32_t uiResult);
 
 /**********************************************************************************************************
 ** Function name        :   vEventRemoveTask

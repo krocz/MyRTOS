@@ -24,12 +24,19 @@
 
 #include "tMemBlock.h"
 
+#include "tFlagGroup.h"
+
+#include "tMutex.h"
+
+#include "tTimer.h"
+
 typedef enum {
 	eErrorNoError = 0,                  // 没有错误
 	eErrorTimeout,                      // 等待超时
 	eErrorResourceUnavaliable,          // 资源不足
 	eErrorDel,						    // 被删除
 	eErrorResourceFull,                 // 资源缓冲区不足
+	eErrorOwner,                        // 不是拥有者操作
 }Error_e;
 
 /**********************************************************************************************************

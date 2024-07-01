@@ -35,6 +35,12 @@ typedef struct {
 
     // 等待事件的结果
     uint32_t uiWaitEventResult;	
+	
+    // 等待的事件检查类型（复位，置位，全部满足，部分满足）
+    uint32_t uiWaitFlagsCheckType;
+
+    // 等待的事件标志
+    uint32_t uiWaitEventFlags;
 }Task_t;
 
 typedef struct {

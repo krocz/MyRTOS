@@ -427,6 +427,11 @@ void vTaskSystemTickHandler(void)
 	
 	// 防止中断嵌套调用 
 	vTaskExitCritical(status);
+
+    // 通知定时器模块节拍事件
+    vTimerModuleTickNotify();	
+	
+	// 这个过程中可能有任务延时完毕(delayTicks = 0)，进行一次调度。
 	vTaskSched();
 }
 

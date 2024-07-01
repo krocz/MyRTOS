@@ -28,10 +28,10 @@ void vEventWait(Event_t * pxEvent, Task_t * pxTask, void * pvMsg, uint32_t uiSta
 {
 	uint32_t uiStatus = uiTaskEnterCritical();
 	
-	pxTask->uiState |= uiState;     // 标记任务处于等待某种事件的状态
-	pxTask->pxWaitEvent = pxEvent;  // 设置任务等待的事件结构
-	pxTask->pvEventMsg = pvMsg;     // 设置任务等待事件的消息存储位置
-	pxTask->uiWaitEventResult = eErrorNoError;   //// 清空事件的等待结果
+	pxTask->uiState |= (uiState << 16);     // 标记任务处于等待某种事件的状态
+	pxTask->pxWaitEvent = pxEvent;                // 设置任务等待的事件结构
+	pxTask->pvEventMsg = pvMsg;                   // 设置任务等待事件的消息存储位置
+	pxTask->uiWaitEventResult = eErrorNoError;    // 清空事件的等待结果
 
 	// 将任务从就绪链表中移除
 	vTaskSchedUnRdy(pxTask);
@@ -85,6 +85,42 @@ Task_t * pxEventWakeUp (Event_t * pxEvent, void * pvMsg, uint32_t uiResult)
 	
 	return pxTask;
 }
+
+/**********************************************************************************************************
+** Function name        :   vEventWakeUpTask
+** Descriptions         :   从事件控制块中唤醒指定任务
+** parameters           :   event 事件控制块
+** parameters           :   task 等待唤醒的任务
+** parameters           :   msg 事件消息
+** parameters           :   result 告知事件的等待结果
+** Returned value       :   首个等待的任务，如果没有任务等待，则返回0
+***********************************************************************************************************/
+void vEventWakeUpTask (Event_t * pxEvent, Task_t * pxTask, void * pvMsg, uint32_t uiResult)
+{
+    // 进入临界区
+    uint32_t uiStatus = uiTaskEnterCritical();
+
+    vListRemove(&pxEvent->xWaitList, &pxTask->xEventNode);
+
+    // 设置收到的消息、结构，清除相应的等待标志位
+    pxTask->pxWaitEvent = (Event_t *)0;
+    pxTask->pvEventMsg = pvMsg;
+    pxTask->uiWaitEventResult = uiResult;
+    pxTask->uiState &= ~TINYOS_TASK_WAIT_MASK;
+
+    // 任务申请了超时等待，这里检查下，将其从延时队列中移除
+    if (pxTask->uiDelayTicks != 0)
+    {
+        vTimeTaskWakeUp(pxTask);
+    }
+
+    // 将任务加入就绪队列
+    vTaskSchedRdy(pxTask);
+
+    // 退出临界区
+    vTaskExitCritical(uiStatus);
+}
+
 
 /**********************************************************************************************************
 ** Function name        :   vEventRemoveTask
