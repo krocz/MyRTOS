@@ -1,5 +1,5 @@
 #include "tinyOS.h"
-
+#include "string.h"
 /****************** 全局变量 *************************/
 
 // 当前任务：记录当前是哪个任务正在运行
@@ -19,38 +19,53 @@ static Bitmap_t g_xTaskPrioBitmap;
 // 延时队列
 static List_t g_xTaskDelayedList;
 
+// 时钟节拍计数
+uint32_t uiTickCount;
 
+extern void vCheckCpuUsage(void);
 
 /**********************************************************************************************************
 ** Function name        :   vTaskInit
 ** Descriptions         :   初始化任务
 ** parameters           :   pxTask           要初始化的任务结构
 ** parameters           :   pxTaskCode       任务的入口函数
-** parameters           :   uiPrio           传递给任务的运行参数
-** parameters           :   uiPrio             任务的优先级
-** parameters           :   pxStack          任务堆栈栈顶地址
+** parameters           :   pvParam          传递给任务的运行参数
+** parameters           :   uiPrio           任务的优先级
+** parameters           :   pxStack          任务堆栈的起始地址（低地址）
+** parameters           :   uiStackSize      任务堆栈大小
 ** Returned value       :   无
 ***********************************************************************************************************/
-void vTaskInit(Task_t * pxTask, TaskFunction_pt pxTaskCode, void *pvParam, uint32_t uiPrio, TaskStack_t *pxStack)
+void vTaskInit(Task_t * pxTask, TaskFunction_pt pxTaskCode, void *pvParam, uint32_t uiPrio, TaskStack_t * pxStack, uint32_t uiStackSize)
 {
-    *(--pxStack) = (unsigned long)(1<<24);                // XPSR, 设置了Thumb模式，恢复到Thumb状态而非ARM状态运行
-    *(--pxStack) = (unsigned long)pxTaskCode;                  // 程序的入口地址
-    *(--pxStack) = (unsigned long)0x14;                   // R14(LR), 任务不会通过return xxx结束自己，所以未用
-    *(--pxStack) = (unsigned long)0x12;                   // R12, 未用
-    *(--pxStack) = (unsigned long)0x3;                    // R3, 未用
-    *(--pxStack) = (unsigned long)0x2;                    // R2, 未用
-    *(--pxStack) = (unsigned long)0x1;                    // R1, 未用
-    *(--pxStack) = (unsigned long)pvParam;                  // R0 = param, 传给任务的入口函数
-    *(--pxStack) = (unsigned long)0x11;                   // R11, 未用
-    *(--pxStack) = (unsigned long)0x10;                   // R10, 未用
-    *(--pxStack) = (unsigned long)0x9;                    // R9, 未用
-    *(--pxStack) = (unsigned long)0x8;                    // R8, 未用
-    *(--pxStack) = (unsigned long)0x7;                    // R7, 未用
-    *(--pxStack) = (unsigned long)0x6;                    // R6, 未用
-    *(--pxStack) = (unsigned long)0x5;                    // R5, 未用
-    *(--pxStack) = (unsigned long)0x4;                    // R4, 未用
+	uint32_t * puiStackTop;
+	
+	// 为了简化代码，tinyOS无论是在启动时切换至第一个任务，还是在运行过程中在不同间任务切换
+    // 所执行的操作都是先保存当前任务的运行环境参数（CPU寄存器值）的堆栈中(如果已经运行运行起来的话)，然后再
+    // 取出从下一个任务的堆栈中取出之前的运行环境参数，然后恢复到CPU寄存器
+    // 对于切换至之前从没有运行过的任务，我们为它配置一个“虚假的”保存现场，然后使用该现场恢复。
+	pxTask->puiStackBase = pxStack;
+	pxTask->uiStackSize = uiStackSize;
+	memset(pxStack, 0, uiStackSize);
+	puiStackTop = pxStack + uiStackSize / sizeof(TaskStack_t);
+	
+    *(--puiStackTop) = (unsigned long)(1<<24);                // XPSR, 设置了Thumb模式，恢复到Thumb状态而非ARM状态运行
+    *(--puiStackTop) = (unsigned long)pxTaskCode;                  // 程序的入口地址
+    *(--puiStackTop) = (unsigned long)0x14;                   // R14(LR), 任务不会通过return xxx结束自己，所以未用
+    *(--puiStackTop) = (unsigned long)0x12;                   // R12, 未用
+    *(--puiStackTop) = (unsigned long)0x3;                    // R3, 未用
+    *(--puiStackTop) = (unsigned long)0x2;                    // R2, 未用
+    *(--puiStackTop) = (unsigned long)0x1;                    // R1, 未用
+    *(--puiStackTop) = (unsigned long)pvParam;                  // R0 = param, 传给任务的入口函数
+    *(--puiStackTop) = (unsigned long)0x11;                   // R11, 未用
+    *(--puiStackTop) = (unsigned long)0x10;                   // R10, 未用
+    *(--puiStackTop) = (unsigned long)0x9;                    // R9, 未用
+    *(--puiStackTop) = (unsigned long)0x8;                    // R8, 未用
+    *(--puiStackTop) = (unsigned long)0x7;                    // R7, 未用
+    *(--puiStackTop) = (unsigned long)0x6;                    // R6, 未用
+    *(--puiStackTop) = (unsigned long)0x5;                    // R5, 未用
+    *(--puiStackTop) = (unsigned long)0x4;                    // R4, 未用
 
-    pxTask->pxStack = pxStack;                                // 保存最终的值
+    pxTask->pxStack = puiStackTop;                                // 保存最终的值
 	pxTask->uiDelayTicks = 0;
 	pxTask->uiPrio = uiPrio;
 	pxTask->uiState = TINYOS_TASK_STATE_RDY;
@@ -91,6 +106,18 @@ void vHardwareInit(void)
 void vTaskDelayedInit (void) 
 {
     vListInit(&g_xTaskDelayedList);
+}
+
+/**********************************************************************************************************
+** Function name        :   vTimeTickInit
+** Descriptions         :   初始化时钟节拍计数
+** input parameters     :   无
+** output parameters    :   无
+** Returned value       :   无
+***********************************************************************************************************/
+void vTimeTickInit(void)
+{
+	uiTickCount = 0;
 }
 
 /**********************************************************************************************************
@@ -425,6 +452,12 @@ void vTaskSystemTickHandler(void)
 		}
 	}
 	
+	// 节拍计数增加
+	uiTickCount ++;
+	
+	// 检查CPU使用率
+	vCheckCpuUsage();
+	
 	// 防止中断嵌套调用 
 	vTaskExitCritical(status);
 
@@ -444,6 +477,8 @@ void vTaskSystemTickHandler(void)
 ***********************************************************************************************************/
 void vTaskGetInfo (Task_t * pxTask, TaskInfo_t * pxInfo)
 {
+	uint32_t * puiStackEnd;
+	
    // 进入临界区
     uint32_t uiStatus = uiTaskEnterCritical();
 
@@ -453,6 +488,17 @@ void vTaskGetInfo (Task_t * pxTask, TaskInfo_t * pxInfo)
     pxInfo->uiSlice = pxTask->uiSlice;                          // 剩余时间片
     pxInfo->uiSuspendCount = pxTask->uiSuspendCount;            // 被挂起的次数
 
+	// 计算堆栈使用量
+	pxInfo->uiStackFree = 0;
+	puiStackEnd = pxTask->puiStackBase;
+	while((*puiStackEnd++ == 0) && (puiStackEnd <= pxTask->puiStackBase + pxTask->uiStackSize / sizeof(TaskStack_t)))
+	{
+		pxInfo->uiStackFree++;
+	}
+	
+	// 转换成字节数
+	pxInfo->uiStackFree *= sizeof(TaskStack_t);
+	
     // 退出临界区
     vTaskExitCritical(uiStatus); 
 }
@@ -550,8 +596,6 @@ void vTimeTaskRemove (Task_t * pxTask)
     vListRemove(&g_xTaskDelayedList, &(pxTask->xDelayNode));
     pxTask->uiState &= ~TINYOS_TASK_STATE_DELAYED;
 }
-
-
 
 
 

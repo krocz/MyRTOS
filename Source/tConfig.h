@@ -5,6 +5,7 @@
 #define TINYOS_ONE_TICK_TO_MS                  1
 #define TINYOS_SLICE_MAX				       5						// 每个任务最大运行的时间片计数
 #define TINYOS_STACK_SIZE                      1024
+#define TINYOS_IDLETASK_STACK_SIZE             1024
 #define pdMS_TO_TICKS(xTimeInMs) ( ( uint32_t ) ( ( uint32_t ) ( xTimeInMs ) / (TINYOS_ONE_TICK_TO_MS ))  )
 #define TINYOS_TIMERTASK_PRIO           1                       // 定时器任务的优先级
 #endif

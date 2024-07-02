@@ -114,6 +114,14 @@ void vTimerModuleTickNotify (void);
 void vTimerModuleInit (void);
 
 /**********************************************************************************************************
+** Function name        :   vTimerInitTask
+** Descriptions         :   初始化软定时器任务
+** parameters           :   无
+** Returned value       :   无
+***********************************************************************************************************/
+void vTimerInitTask(void);
+
+/**********************************************************************************************************
 ** Function name        :   tTimerGetInfo
 ** Descriptions         :   查询状态信息
 ** parameters           :   pxTimer 查询的定时器

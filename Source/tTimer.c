@@ -150,14 +150,22 @@ void vTimerModuleInit (void)
 	vListInit(&xTimerSoftList);
 	vSemInit(&xTimerProtectSem, 1, 1);
 	vSemInit(&xTimerTickSem, 0, 0);
-	
+}
+
+/**********************************************************************************************************
+** Function name        :   vTimerInitTask
+** Descriptions         :   初始化软定时器任务
+** parameters           :   无
+** Returned value       :   无
+***********************************************************************************************************/
+void vTimerInitTask(void)
+{
 #if TINYOS_TIMERTASK_PRIO >= (TINYOS_PRO_COUNT - 1)
     #error "The proprity of timer task must be greater then (TINYOS_PRO_COUNT - 1)"
 #endif
     vTaskInit(&xTimeTask, prvTimerSoftTask, (void *)0,
-        TINYOS_TIMERTASK_PRIO, &xTimerTaskStack[TINYOS_STACK_SIZE]);
+        TINYOS_TIMERTASK_PRIO, xTimerTaskStack, sizeof(xTimerTaskStack));
 }
-
 
 /**********************************************************************************************************
 ** Function name        :   vTimerDestroy

@@ -15,6 +15,8 @@ typedef uint32_t TaskStack_t;
 
 typedef struct {
 	TaskStack_t *pxStack;
+	uint32_t * puiStackBase;
+	uint32_t uiStackSize;
 	uint32_t uiDelayTicks;
 	uint32_t uiPrio;
 	Node_t xDelayNode;
@@ -49,6 +51,9 @@ typedef struct {
 	uint32_t uiState;
 	uint32_t uiSlice;
 	uint32_t uiSuspendCount;
+	
+	uint32_t uiStackSize;
+	uint32_t uiStackFree;
 }TaskInfo_t;
 
 
@@ -67,10 +72,11 @@ extern Task_t * pxNextTask;
 ** parameters           :   pxTaskCode       任务的入口函数
 ** parameters           :   uiPrio           传递给任务的运行参数
 ** parameters           :   prio             任务的优先级
-** parameters           :   pxStack          任务堆栈栈顶地址
+** parameters           :   pxStack          任务堆栈的起始地址（低地址）
+** parameters           :   uiStackSize      任务堆栈大小
 ** Returned value       :   无
 ***********************************************************************************************************/
-void vTaskInit(Task_t * pxTask, TaskFunction_pt pxTaskCode, void *pvParam, uint32_t uiPrio, uint32_t *pxStack);
+void vTaskInit(Task_t * pxTask, TaskFunction_pt pxTaskCode, void *pvParam, uint32_t uiPrio, TaskStack_t * pxStack, uint32_t uiStackSize);
 
 /**********************************************************************************************************
 ** Function name        :   vTaskStartScheduler
@@ -87,6 +93,15 @@ void vTaskStartScheduler(void);
 ** Returned value       :   无
 ***********************************************************************************************************/
 void vTaskDelayedInit (void);
+
+/**********************************************************************************************************
+** Function name        :   vTimeTickInit
+** Descriptions         :   初始化时钟节拍计数
+** input parameters     :   无
+** output parameters    :   无
+** Returned value       :   无
+***********************************************************************************************************/
+void vTimeTickInit(void);
 
 /**********************************************************************************************************
 ** Function name        :   vTaskDelay
